@@ -1,0 +1,65 @@
+name: CI
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main, develop]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: saas_db
+          POSTGRES_USER: saas_user
+          POSTGRES_PASSWORD: saas_pass
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 5
+
+      redis:
+        image: redis:7-alpine
+        ports: ["6379:6379"]
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 5
+
+    env:
+      DJANGO_SETTINGS_MODULE: config.django.settings.dev
+      DJANGO_SECRET_KEY: ci-secret-key
+      DATABASE_URL: postgres://saas_user:saas_pass@localhost:5432/saas_db
+      REDIS_URL: redis://localhost:6379/0
+      DEBUG: "True"
+      ALLOWED_HOSTS: localhost,127.0.0.1
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -r requirements/dev.txt
+
+      - name: Run migrations
+        run: python manage.py migrate_schemas --shared
+
+      - name: Run tests
+        run: pytest --cov=apps --cov-report=xml
+
+      - name: Upload coverage
+        uses: codecov/codecov-action@v4
+        with:
+          file: coverage.xml
